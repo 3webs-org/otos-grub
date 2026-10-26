@@ -31,31 +31,18 @@ vendored here from [`otos-coreinit`](https://github.com/3webs-org/otos-coreinit)
 which owns the canonical copy. That header is the actual contract --
 this section is a summary, not a second source of truth.
 
-At kernel (saski) entry, five values, both architectures:
+At kernel (saski) entry, three values, both architectures:
 
 - **aarch64**: `x0` = a real, standard FDT physical address (kept so the
-  resulting image still looks like a normal arm64 boot target to anything
-  that only speaks the standard protocol; saski itself never reads it).
-  `x1` = MachineDescription object's physical address. `x2` =
-  InitDescription object's physical address. `x3` = SaskiBootParams
-  struct's physical address. `x4` = init's already-resolved entry point.
-- **x86_64** (SysV integer-argument registers, by analogy -- no
-  FDT-equivalent slot, since x86 has no comparable universal boot-register
-  convention worth preserving): `rdi` = MachineDescription ptr, `rsi` =
-  InitDescription ptr, `rdx` = SaskiBootParams ptr, `rcx` = entry point.
+  resulting image still looks like a normal arm64 boot target). `x1` =
+  init's already-resolved entry point. `x2` = InitDescription object's
+  physical address.
+- **x86_64**: `rdi` = raw ACPI RSDP, `rsi` = init entry point, `rdx` =
+  InitDescription pointer.
 
-**MachineDescription** and **InitDescription** are real Cap'n Proto
-objects (genuine composite-struct lists, not a flat fixed-array
-approximation), built with `include/capnp_list.h`'s
-`capnp_build_list_root` -- this module's own job is almost entirely
-"populate a `struct machine_description_data` from whatever firmware
-handed it (DT or ACPI, both just 'a device this module knows how to
-read' feeding the same struct) and encode it," since `coreinit` is the
-one that decodes them. **SaskiBootParams** is a plain (non-Cap'n-Proto)
-struct, since saski reads it directly -- it describes a pool of memory
-*reserved for saski's own use* (AP stacks, and x86_64 AP page tables),
-not memory init is invited to allocate from; see the header's own
-top comment for the full reasoning and field list.
+**InitDescription** is a real Cap'n Proto object containing the variant
+list and coreinit allocator pointer. The module forwards the raw firmware
+FDT/ACPI pointer without parsing it; coreinit owns that parsing.
 
 **Mach-O entry point**: the standard `LC_MAIN` load command. No
 `ARM_THREAD_STATE64`/`x86_THREAD_STATE64` games needed -- `LC_MAIN` is
