@@ -24,44 +24,53 @@ this loader knows how to read," feeding one shared schema) and hands the
 kernel an already-resolved entry point plus a couple of opaque pointers,
 so the kernel's own job shrinks to almost nothing.
 
-## The protocol (aarch64, current design)
+## The protocol
 
-At kernel entry:
-- **x0** -- a real, standard FDT physical address. Kept so the resulting
-  image still looks like a normal arm64 boot target to anything that only
-  speaks the standard protocol; the kernel itself never reads it.
-- **x1** -- the physical address of a Cap'n Proto-encoded
-  machine-description object this module built from whatever firmware
-  actually handed it (DT or ACPI) -- opaque to the kernel, forwarded to
-  `coreinit` to decode.
-- **x2** -- the physical address of a Cap'n Proto-encoded
-  init-description object: a list of per-architecture init-binary
-  variants, for `coreinit`'s own SMP bring-up to consult later if a
-  secondary core turns out to be a different architecture than the BSP.
-  Opaque to the kernel; just has to survive the handoff.
-- **x3** -- the init program's already-resolved entry point. This module
-  parses the Mach-O kernel and init images itself (segments and entry
-  point) -- the one piece the xnu loader fakes via `ARM_THREAD_STATE64`/
-  `x86_THREAD_STATE64` games, done directly here instead.
+Defined in full in [`include/boot_protocol.h`](include/boot_protocol.h),
+vendored here from [`otos-coreinit`](https://github.com/3webs-org/otos-coreinit),
+which owns the canonical copy. That header is the actual contract --
+this section is a summary, not a second source of truth.
 
-x86_64's register mapping is the same idea (SysV integer-argument
-registers, by analogy) but not yet pinned down -- this project started
-aarch64-first.
+At kernel (saski) entry, five values, both architectures:
+
+- **aarch64**: `x0` = a real, standard FDT physical address (kept so the
+  resulting image still looks like a normal arm64 boot target to anything
+  that only speaks the standard protocol; saski itself never reads it).
+  `x1` = MachineDescription object's physical address. `x2` =
+  InitDescription object's physical address. `x3` = SaskiBootParams
+  struct's physical address. `x4` = init's already-resolved entry point.
+- **x86_64** (SysV integer-argument registers, by analogy -- no
+  FDT-equivalent slot, since x86 has no comparable universal boot-register
+  convention worth preserving): `rdi` = MachineDescription ptr, `rsi` =
+  InitDescription ptr, `rdx` = SaskiBootParams ptr, `rcx` = entry point.
+
+**MachineDescription** and **InitDescription** are real Cap'n Proto
+objects (genuine composite-struct lists, not a flat fixed-array
+approximation), built with `include/capnp_list.h`'s
+`capnp_build_list_root` -- this module's own job is almost entirely
+"populate a `struct machine_description_data` from whatever firmware
+handed it (DT or ACPI, both just 'a device this module knows how to
+read' feeding the same struct) and encode it," since `coreinit` is the
+one that decodes them. **SaskiBootParams** is a plain (non-Cap'n-Proto)
+struct, since saski reads it directly -- it describes a pool of memory
+*reserved for saski's own use* (AP stacks, and x86_64 AP page tables),
+not memory init is invited to allocate from; see the header's own
+top comment for the full reasoning and field list.
+
+**Mach-O entry point**: the standard `LC_MAIN` load command. No
+`ARM_THREAD_STATE64`/`x86_THREAD_STATE64` games needed -- `LC_MAIN` is
+what any Mach-O linker (including the one this project's own build
+already uses, ld64.lld) emits by default; faking a thread state via
+`LC_UNIXTHREAD` was only ever necessary to satisfy GRUB's xnu loader's
+own narrow parser, which this module replaces.
 
 ## Status: design stage, not yet implemented
 
-This repository is currently scaffolding only. Real, load-bearing design
-decisions that are **not yet made** -- don't assume any of these from
-reading this README alone:
-
-- The exact field list of both Cap'n Proto schemas (machine-description,
-  init-description/variant-list).
-- Which repository hosts those schemas (consumed by this module, by
-  `otos-boot`, and by `otos-coreinit`'s kernel/init -- three repos that
-  all need to agree on one wire format).
-- The exact Mach-O entry-point convention this module uses (replacing
-  the `ARM_THREAD_STATE64`/`LC_UNIXTHREAD` reuse from GRUB's xnu loader).
-- x86_64's register mapping for the same protocol.
+This repository is currently scaffolding only -- the protocol above is
+now a resolved, documented contract (`include/boot_protocol.h`), but
+nothing in this repo actually parses a DT/ACPI table or builds a real
+object from one yet. That implementation is the next step, not done
+here.
 
 ## Prior art worth reusing as a template
 
